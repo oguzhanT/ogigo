@@ -1,0 +1,117 @@
+basePath: /
+definitions:
+  main.Balance:
+    properties:
+      amount:
+        type: number
+      currency:
+        type: string
+    type: object
+  main.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  main.Event:
+    properties:
+      app:
+        type: string
+      attributes:
+        properties:
+          amount:
+            type: string
+          currency:
+            type: string
+        type: object
+      meta:
+        properties:
+          user:
+            type: string
+        type: object
+      time:
+        type: string
+      type:
+        type: string
+      wallet:
+        type: string
+    type: object
+  main.EventRequest:
+    properties:
+      events:
+        items:
+          $ref: '#/definitions/main.Event'
+        type: array
+    type: object
+  main.Wallet:
+    properties:
+      balances:
+        items:
+          $ref: '#/definitions/main.Balance'
+        type: array
+      id:
+        type: string
+    type: object
+  main.WalletResponse:
+    properties:
+      wallets:
+        items:
+          $ref: '#/definitions/main.Wallet'
+        type: array
+    type: object
+host: localhost:80
+info:
+  contact: {}
+  description: This is a test scenario server.
+  title: Ogigo API
+  version: "1.0"
+paths:
+  /:
+    get:
+      consumes:
+      - application/json
+      description: This endpoint retrieves the current wallet state.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.WalletResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+      summary: Retrieve the current wallet state
+      tags:
+      - Wallet
+    post:
+      consumes:
+      - application/json
+      description: This endpoint processes wallet update events and places them into
+        a Kafka queue.
+      parameters:
+      - description: Events to be processed
+        in: body
+        name: events
+        required: true
+        schema:
+          $ref: '#/definitions/main.EventRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/main.ErrorResponse'
+      summary: Process incoming wallet update events
+      tags:
+      - Events
+swagger: "2.0"

@@ -1,0 +1,6 @@
+# redpanda.yaml
+default:
+  log:
+    level: info
+  redpanda:
+    max_request_size: 1048576000 # 1GB

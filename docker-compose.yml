@@ -1,0 +1,96 @@
+services:
+  postgres:
+    image: postgres:latest
+    container_name: postgres
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ogigo
+    ports:
+      - "5432:5432"
+    networks:
+      - app-network
+    volumes:
+      - ./db:/docker-entrypoint-initdb.d
+
+  http-receiver:
+    build:
+      context: ./
+      dockerfile: dockerfile-http-receiver
+    container_name: http-receiver
+    environment:
+      POSTGRES_HOST: "host.docker.internal"
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: "user"
+      POSTGRES_PASSWORD: "password"
+      POSTGRES_DB: "ogigo"
+    ports:
+      - "80:80"
+    depends_on:
+      - postgres
+    networks:
+      - app-network
+
+  message-processor:
+    build:
+      context: ./
+      dockerfile: dockerfile-message-processor
+    container_name: message-processor
+    environment:
+      POSTGRES_HOST: "host.docker.internal"
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: "user"
+      POSTGRES_PASSWORD: "password"
+      POSTGRES_DB: "ogigo"
+    depends_on:
+      - postgres
+    networks:
+      - app-network
+
+  redpanda:
+    image: vectorized/redpanda:v23.2.17
+    command:
+      - redpanda start
+      - --smp 1
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+      - --pandaproxy-addr 0.0.0.0:8082
+      - --advertise-pandaproxy-addr localhost:8082
+    ports:
+      - 8081:8081
+      - 8082:8082
+      - 9092:9092
+      - 29092:29092
+    networks:
+      - app-network
+
+  console:
+    image: docker.redpanda.com/redpandadata/console:v2.3.8
+    restart: on-failure
+    entrypoint: /bin/sh
+    command: -c "echo \"$$CONSOLE_CONFIG_FILE\" > /tmp/config.yml; /app/console"
+    environment:
+      CONFIG_FILEPATH: /tmp/config.yml
+      CONSOLE_CONFIG_FILE: |
+        kafka:
+          brokers: ["redpanda:29092"]
+          schemaRegistry:
+            enabled: true
+            urls: ["http://redpanda:8081"]
+        connect:
+          enabled: true
+          clusters:
+            - name: datagen
+              url: http://connect:8083
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redpanda
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

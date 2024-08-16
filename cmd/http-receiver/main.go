@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"ogigo/internal/queue"
 	"ogigo/internal/storage"
-	"ogigo/pkg/queue"
 	"os"
 	"time"
+
+	_ "github.com/lib/pq"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/gin-gonic/gin"
@@ -17,7 +19,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-var queueWriter queue.Writer
+var kafkaQueue queue.QueueInterface
 
 type Event struct {
 	App  string `json:"app"`
@@ -70,8 +72,8 @@ func main() {
 		log.Fatalf("sentry.Init: %s", err)
 	}
 	defer sentry.Flush(2 * time.Second)
-	// Initialize Kafka writer
-	queueWriter = queue.NewKafkaWriter("redpanda:29092", "wallet-updates")
+	// Initialize Kafka queue
+	kafkaQueue = queue.NewQueue("redpanda:29092", "wallet-updates")
 
 	r := gin.Default()
 
@@ -94,7 +96,6 @@ func main() {
 	if err := r.Run(":80"); err != nil {
 		log.Fatalf("Failed to run server: %v", err)
 	}
-
 }
 
 // handleUpdate processes incoming events and places them into the queue.
@@ -123,7 +124,7 @@ func handleUpdate(c *gin.Context) {
 			return
 		}
 
-		err = queueWriter.WriteMessages(c, kafka.Message{
+		err = kafkaQueue.WriteMessage(kafka.Message{
 			Value: eventJSON,
 		})
 		if err != nil {
@@ -175,7 +176,7 @@ func handleState(c *gin.Context) {
 		return
 	}
 
-	// Prepare the respnse
+	// Prepare the response
 	walletResponse := WalletResponse{
 		Wallets: []Wallet{
 			{

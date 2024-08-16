@@ -43,7 +43,7 @@ func ProcessEvent(db *sql.DB, event Event) {
 	}
 
 	storage := storage.NewStorage(db)
-	err = storage.UpdateBalance(event.Wallet, balanceChange, currency)
+	err = storage.UpdateWalletBalance(event.Wallet, balanceChange, currency)
 	if err != nil {
 		fmt.Printf("Failed to update balance: %v", err)
 	}

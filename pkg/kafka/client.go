@@ -12,6 +12,11 @@ type Writer interface {
 	Close() error
 }
 
+type Reader interface {
+	ReadMessage(ctx context.Context) (kafka.Message, error)
+	CommitMessages(ctx context.Context, msgs ...kafka.Message) error
+}
+
 // NewKafkaWriter creates a new Kafka Writer
 func NewKafkaWriter(broker, topic string) Writer {
 	return &kafka.Writer{

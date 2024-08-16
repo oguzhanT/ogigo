@@ -6,14 +6,17 @@ import (
 	"encoding/json"
 	"log"
 	"ogigo/internal/processor"
-	"ogigo/pkg/queue"
+	"ogigo/internal/queue"
 	"os"
 
 	_ "github.com/lib/pq"
 )
 
+var kafkaQueue queue.QueueInterface
+
 func main() {
-	queueReader := queue.NewKafkaReader("redpanda:29092", "wallet-updates", "wallet-processor")
+
+	kafkaQueue = queue.NewQueue("redpanda:29092", "wallet-updates")
 
 	connStr := "host=" + os.Getenv("POSTGRES_HOST") + " user=" + os.Getenv("POSTGRES_USER") + " password=" + os.Getenv("POSTGRES_PASSWORD") + " dbname=" + os.Getenv("POSTGRES_DB") + " sslmode=disable"
 
@@ -24,7 +27,7 @@ func main() {
 	}
 
 	for {
-		m, err := queueReader.ReadMessage(context.Background())
+		m, err := kafkaQueue.ReadMessage(context.Background())
 		if err != nil {
 			log.Fatalf("error while receiving message: %v", err)
 		}
@@ -37,7 +40,7 @@ func main() {
 
 		processor.ProcessEvent(db, event)
 
-		err2 := queueReader.CommitMessages(context.Background(), m)
+		err2 := kafkaQueue.CommitMessages(context.Background(), m)
 		if err2 != nil {
 			log.Fatalf("error while committing message: %v", err)
 		}

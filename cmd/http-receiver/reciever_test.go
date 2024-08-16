@@ -4,88 +4,114 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"ogigo/internal/queue"
+
 	"github.com/gin-gonic/gin"
 	"github.com/segmentio/kafka-go"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
 
-// MockKafkaWriter is a mock implementation of queue.Writer for testing.
-type MockKafkaWriter struct {
-	mock.Mock
+// Define a mock queue for testing
+type MockQueue struct {
+	queue.QueueInterface
+	WriteMessageFunc   func(msg kafka.Message) error
+	ReadMessageFunc    func(ctx context.Context) (kafka.Message, error)
+	CommitMessagesFunc func(ctx context.Context, msgs ...kafka.Message) error
 }
 
-func (m *MockKafkaWriter) WriteMessages(ctx context.Context, msgs ...kafka.Message) error {
-	args := m.Called(ctx, msgs)
-	return args.Error(0)
+func (mq *MockQueue) WriteMessage(msg kafka.Message) error {
+	return mq.WriteMessageFunc(msg)
 }
 
-func (m *MockKafkaWriter) Close() error {
-	args := m.Called()
-	return args.Error(0)
+func (mq *MockQueue) ReadMessage(ctx context.Context) (kafka.Message, error) {
+	return mq.ReadMessageFunc(ctx)
 }
 
-func TestHandleUpdate(t *testing.T) {
-	mockKafkaWriter := new(MockKafkaWriter)
-	queueWriter = mockKafkaWriter
+func (mq *MockQueue) CommitMessages(ctx context.Context, msgs ...kafka.Message) error {
+	return mq.CommitMessagesFunc(ctx, msgs...)
+}
+
+func TestHandleUpdate_successful_write(t *testing.T) {
+	mockQueue := &MockQueue{
+		WriteMessageFunc: func(msg kafka.Message) error {
+			return nil
+		},
+	}
+	kafkaQueue = mockQueue // Assign the mockQueue to kafkaQueue
 
 	r := gin.Default()
 	r.POST("/", handleUpdate)
 
-	tests := []struct {
-		name           string
-		requestBody    EventRequest
-		mockWriteError error
-		expectedCode   int
-		expectedBody   string
-	}{
-		{
-			name: "successful write",
-			requestBody: EventRequest{
-				Events: []Event{
-					{
-						App:  "test-app",
-						Type: "update",
-						Time: "2024-08-16T12:00:00Z",
-						Meta: struct {
-							User string `json:"user"`
-						}{
-							User: "test-user",
-						},
-						Wallet: "test-wallet",
-						Attributes: struct {
-							Amount   string `json:"amount"`
-							Currency string `json:"currency"`
-						}{
-							Amount:   "100",
-							Currency: "USD",
-						},
-					},
-				},
-			},
-			mockWriteError: nil,
-			expectedCode:   http.StatusOK,
-			expectedBody:   `"OK"`,
+	event := Event{
+		App:  "test-app",
+		Type: "update",
+		Time: "2024-08-16T12:00:00Z",
+		Meta: struct {
+			User string "json:\"user\""
+		}{
+			User: "test-user",
+		},
+		Wallet: "test-wallet",
+		Attributes: struct {
+			Amount   string "json:\"amount\""
+			Currency string "json:\"currency\""
+		}{
+			Amount:   "100",
+			Currency: "USD",
 		},
 	}
+	reqBody, _ := json.Marshal(EventRequest{Events: []Event{event}})
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockKafkaWriter.On("WriteMessages", mock.Anything, mock.Anything).Return(tt.mockWriteError)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
 
-			body, _ := json.Marshal(tt.requestBody)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.JSONEq(t, `"OK"`, w.Body.String())
+}
 
-			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
-			rec := httptest.NewRecorder()
-
-			r.ServeHTTP(rec, req)
-
-			assert.Equal(t, tt.expectedCode, rec.Code)
-			assert.Equal(t, tt.expectedBody, rec.Body.String())
-		})
+func TestHandleUpdate_failed_to_write(t *testing.T) {
+	mockQueue := &MockQueue{
+		WriteMessageFunc: func(msg kafka.Message) error {
+			return fmt.Errorf("write error")
+		},
 	}
+	kafkaQueue = mockQueue // Assign the mockQueue to kafkaQueue
+
+	r := gin.Default()
+	r.POST("/", handleUpdate)
+
+	event := Event{
+		App:  "test-app",
+		Type: "update",
+		Time: "2024-08-16T12:00:00Z",
+		Meta: struct {
+			User string "json:\"user\""
+		}{
+			User: "test-user",
+		},
+		Wallet: "test-wallet",
+		Attributes: struct {
+			Amount   string "json:\"amount\""
+			Currency string "json:\"currency\""
+		}{
+			Amount:   "100",
+			Currency: "USD",
+		},
+	}
+	reqBody, _ := json.Marshal(EventRequest{Events: []Event{event}})
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.JSONEq(t, `{"error":"Failed to write message to queue"}`, w.Body.String())
 }
